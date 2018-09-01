@@ -2,75 +2,20 @@ package xin;
 
 import org.junit.Test;
 
-import java.util.Objects;
+import java.util.HashMap;
+import java.util.List;
+import java.util.regex.Pattern;
 
 import static java.util.Arrays.asList;
 import static java.util.Collections.emptyList;
 import static java.util.Collections.singletonList;
 import static org.hamcrest.CoreMatchers.equalTo;
 import static org.junit.Assert.assertThat;
+import static xin.ParameterizedTest.param;
+import static xin.ParameterizedTest.parameterized_test;
 import static xin.Parsec.*;
 
 public class ParsecTest {
-
-    @SuppressWarnings("WeakerAccess")
-    public static class Tuple3<F, S, T> {
-        final F first;
-        final S second;
-        final T third;
-
-        public Tuple3(F first, S second, T third) {
-            this.first = first;
-            this.second = second;
-            this.third = third;
-        }
-
-        @Override
-        public boolean equals(Object o) {
-            if (this == o) return true;
-            if (o == null || getClass() != o.getClass()) return false;
-            Tuple3<?, ?, ?> tuple3 = (Tuple3<?, ?, ?>) o;
-            return Objects.equals(first, tuple3.first) &&
-                    Objects.equals(second, tuple3.second) &&
-                    Objects.equals(third, tuple3.third);
-        }
-
-        @Override
-        public int hashCode() {
-
-            return Objects.hash(first, second, third);
-        }
-
-        @Override
-        public String toString() {
-            return "Tuple3{" +
-                    "first=" + first +
-                    ", second=" + second +
-                    ", third=" + third +
-                    '}';
-        }
-    }
-
-    private static <F, S, T> Tuple3<F, S, T> param(F f, S s, T t) {
-        return new Tuple3<>(f, s, t);
-    }
-
-    private static void test_parsec(Parsec parsec, String input, Value expected) {
-        final Value res = parsec._parse(input, 0);
-        try {
-            assertThat(expected, equalTo(res));
-        } catch (AssertionError e) {
-            System.out.println("input = " + input);
-            throw e;
-        }
-    }
-
-    @SafeVarargs
-    private static void parameterized_test(Tuple3<Parsec, String, Value>... testItems) {
-        for (Tuple3<Parsec, String, Value> tuple3 : testItems) {
-            test_parsec(tuple3.first, tuple3.second, tuple3.third);
-        }
-    }
 
     ///////////////////////////////////////////////////////////////////////////
     // 
@@ -92,6 +37,9 @@ public class ParsecTest {
                 param(space(), "a", Value.failure(0, "a space")),
                 param(space(), "1", Value.failure(0, "a space")),
                 param(space(), "\n", Value.success(1, '\n')),
+
+                param(charMatcher(Character::isLetterOrDigit, ""), "1", Value.success(1, '1')),
+                param(charMatcher(Character::isLetterOrDigit, ""), "x", Value.success(1, 'x')),
 
                 // letter
                 param(letter(), "abc", Value.success(1, 'a')),
@@ -132,6 +80,7 @@ public class ParsecTest {
 
                 // regex
                 param(regex("\\d+"), "123", Value.success(3, "123")),
+                param(regex(Pattern.compile("\\d+")), "123", Value.success(3, "123")),
                 param(regex("\\d+"), "123abc", Value.success(3, "123")),
                 param(regex("\\d+"), "1", Value.success(1, "1")),
                 param(regex("abc\\d+"), "abc1", Value.success(4, "abc1")),
@@ -179,7 +128,13 @@ public class ParsecTest {
 
     @Test
     public void test_compose() {
-
+        parameterized_test(
+                param(char_('a').compose(string("bc")), "abc", Value.success(3, "bc")),
+                param(char_('-').compose(regex("\\d+")).map(Integer::parseInt), "-1234", Value.success(5, 1234)),
+                param(string("0x").compose(regex("[0-9a-fA-F]+")).map(s -> Integer.parseInt(s, 16)), "0xFFFF", Value.success(6, 0xFFFF)),
+                param(char_('-').compose(regex("\\d+")).map(Integer::parseInt), "+1234", Value.failure(0, '-')),
+                param(char_('-').compose(regex("\\d+")).map(Integer::parseInt), "-a1234", Value.failure(1, "^\\d+"))
+        );
     }
 
     ///////////////////////////////////////////////////////////////////////////
@@ -188,7 +143,30 @@ public class ParsecTest {
 
     @Test
     public void test_separated() {
+        final Parsec<List> p = sepBy(regex("\\d+").map(Integer::parseInt), char_(','));
+        final Parsec<List> p2 = sepBy1(regex("\\d+").map(Integer::parseInt), char_(','));
+        final Parsec<List> p3 = separated(regex("\\d+").map(Integer::parseInt), char_(','), 2, 2);
+        parameterized_test(
+                // sep
+                param(p, "1,2,23,456", Value.success(10, asList(1, 2, 23, 456))),
+                param(p, "1", Value.success(1, singletonList(1))),
+                param(p, "1,", Value.failure(2, "^\\d+")),
+                param(p, "1, 2,23,456", Value.failure(2, "^\\d+")),
+                param(p, "1,2 ,23,456", Value.success(3, asList(1, 2))),
 
+                // sep1
+                param(p2, "1,2 ,23,456", Value.success(3, asList(1, 2))),
+                param(p2, "1,2,34,567", Value.success(10, asList(1, 2, 34, 567))),
+                param(p2, "1,2,3 4,567", Value.success(5, asList(1, 2, 3))),
+                param(p2, "1,2", Value.success(3, asList(1, 2))),
+                param(p2, "1,2", Value.success(3, asList(1, 2))),
+                param(p2, "9", Value.failure(1, ',')),
+                param(p2, "1,", Value.failure(2, "^\\d+")),
+
+                // separated
+                param(p2, "1,", Value.failure(2, "^\\d+"))
+
+        );
     }
 
     ///////////////////////////////////////////////////////////////////////////
@@ -197,7 +175,13 @@ public class ParsecTest {
 
     @Test
     public void test_optional() {
-
+        parameterized_test(
+                param(optional(regex("[+-]")), "+100", Value.success(1, "+")),
+                param(optional(regex("[+-]")), "-100", Value.success(1, "-")),
+                param(optional(regex("[+-]")), "100", Value.success(0, null)),
+                param(joint(optional(regex("[+-]")), regex("\\d+").map(Integer::parseInt)), "+100", Value.success(4, asList("+", 100))),
+                param(joint(optional(regex("[+-]")), regex("\\d+").map(Integer::parseInt)), "-100", Value.success(4, asList("-", 100)))
+        );
     }
 
     ///////////////////////////////////////////////////////////////////////////
@@ -271,7 +255,48 @@ public class ParsecTest {
     public void test_map() {
         parameterized_test(
                 param(regex("\\d+").map(Integer::parseInt), "12345", Value.success(5, 12345)),
-                param(regex("\\d+\\.\\d+").map(Double::parseDouble), "123.45", Value.success(6, 123.45))
+                param(regex("\\d+\\.\\d+").map(Double::parseDouble), "123.45", Value.success(6, 123.45)),
+                param(regex("abc").map(Double::parseDouble), "123.45", Value.failure(0, "^abc"))
         );
+    }
+
+    @Test
+    public void test_skip() {
+        parameterized_test(
+                param(string("xm").skip(eof()), "xm", Value.success(2, "xm")),
+                param(string("xm").skip(eof()), "xxm", Value.failure(1, "xm")),
+                param(string("xm").skip(eof()), "xm and xh", Value.failure(2, "EOF"))
+        );
+    }
+
+    @Test
+    public void test_parse() {
+        final String res = string("xm").parse("xm and xh");
+        assertThat(res, equalTo("xm"));
+
+    }
+
+    @Test(expected = ParseException.class)
+    public void test_parse_failed() {
+        string("xm").parse("xh");
+    }
+
+    @Test(expected = ParseException.class)
+    public void test_parseStrict() {
+        string("xm").parseStrict("xm and xh");
+    }
+
+    @Test
+    public void test_hashCode() {
+        final HashMap<Value, Object> map = new HashMap<>();
+        map.put(Value.success(1, "hello"), "hello");
+
+        assertThat(Value.success(1, "xm"), equalTo(Value.success(1, "xm")));
+    }
+
+    @Test
+    public void test_toString() {
+        final String res = Value.failure(1, "hhh").toString();
+        System.out.println("res = " + res);
     }
 }

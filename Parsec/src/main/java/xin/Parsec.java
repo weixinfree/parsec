@@ -20,7 +20,7 @@ public interface Parsec<T> {
         }
     }
 
-    default T parse(String input) throws ParseException {
+    default T parse(String input) {
         final Value<T> res = _parse(input, 0);
         if (!res.status) {
             throw new ParseException(
@@ -30,6 +30,10 @@ public interface Parsec<T> {
         }
 
         return res.value;
+    }
+
+    default T parseStrict(String input) {
+        return this.skip(eof()).parse(input);
     }
 
     Value<T> _parse(String input, int index);
@@ -62,7 +66,7 @@ public interface Parsec<T> {
             if (end.status) {
                 return Value.success(end.index, res.value);
             } else {
-                return Value.failure(end.index, "end with: " + end.expected);
+                return Value.failure(end.index, end.expected);
             }
         };
     }
@@ -87,11 +91,11 @@ public interface Parsec<T> {
             this.expected = expected;
         }
 
-        static <T> Value<T> success(int index, T value) {
+        public static <T> Value<T> success(int index, T value) {
             return new Value<>(true, index, value, value);
         }
 
-        static <T> Value<T> failure(int index, Object expected) {
+        public static <T> Value<T> failure(int index, Object expected) {
             return new Value<>(false, index, null, expected);
         }
 
@@ -108,7 +112,6 @@ public interface Parsec<T> {
 
         @Override
         public int hashCode() {
-
             return Objects.hash(status, index, value, expected);
         }
 
@@ -139,7 +142,7 @@ public interface Parsec<T> {
 
     static Parsec<Character> char_(char c) {
         return (input, index) -> {
-            if (!input.isEmpty() && input.charAt(index) == c) {
+            if (index < input.length() && input.charAt(index) == c) {
                 return Value.success(index + 1, c);
             } else {
                 return Value.failure(index, c);
@@ -271,16 +274,12 @@ public interface Parsec<T> {
     //
     ///////////////////////////////////////////////////////////////////////////
 
-    static <T, R> Parsec<R> compose(Parsec<T> p1, Parsec<R> p2) {
-        return p1.compose(p2);
-    }
-
     default <R> Parsec<R> compose(Parsec<R> parsec) {
         final Parsec<T> _this = this;
         return (input, index) -> {
             final Value<T> res = _this._parse(input, index);
             if (!res.status) {
-                return Value.failure(res.index, "");
+                return Value.failure(res.index, res.expected);
             } else {
                 return parsec._parse(input, res.index);
             }
@@ -386,9 +385,9 @@ public interface Parsec<T> {
 
     static Parsec<List> separated(Parsec p, Parsec seq, int min, int max) {
 
-        _check(max >= min, "");
-        _check(max >= 0, "");
-        _check(min >= 0, "");
+        _check(max >= min, "max < min, very wrong!!!");
+        _check(max >= 0, "max must positive");
+        _check(min >= 0, "min must positive");
 
         return (input, index) -> {
 
@@ -396,7 +395,7 @@ public interface Parsec<T> {
 
             Value res = p._parse(input, index);
             if (!res.status) {
-                return Value.failure(res.index, "");
+                return Value.failure(res.index, res.expected);
             }
 
             values.add(res.value);
@@ -410,13 +409,13 @@ public interface Parsec<T> {
                     if (count >= min) {
                         break;
                     }
-                    return Value.failure(res.index, "");
+                    return Value.failure(res.index, res.expected);
                 }
 
                 res = p._parse(input, res.index);
 
                 if (!res.status) {
-                    return Value.failure(res.index, "");
+                    return Value.failure(res.index, res.expected);
                 }
 
                 values.add(res.value);

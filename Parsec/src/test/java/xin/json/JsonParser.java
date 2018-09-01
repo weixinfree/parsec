@@ -91,10 +91,6 @@ public class JsonParser {
                 });
     }
 
-    public static Parsec<Map<String, Object>> jsonc() {
-        return compose(spaces(), jsonObject());
-    }
-
     static class Pair<A, B> {
         final A first;
         final B second;
